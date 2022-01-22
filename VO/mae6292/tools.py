@@ -406,6 +406,43 @@ def triangulation_robust(p1, p2, M1, M2, tol_mu=1e-3, tol_rep = 1):
 
     return p_W, index_inliers, mu_ratio, err
 
+def triangulation_robust_depth(p1, p2, K1, R1, T1, K2, R2, T2, tol_mu=1e-3, tol_rep = 1, tol_depth = (1, 50)):
+    # Input
+    # p1, p2: 3 by n pixel homogeneous coordinates
+    # M1, M2: 3 by 4 perspective projection matrix
+    # tol_mu: tolerance for the ratio of the smallest singular value to the next smallest
+    # tol_rep: tolerance for the reprojection error
+    # tol_depth: tol_depth[0]=min_depth, tol_depth[1]=max_depth
+    # Output
+    # P: 3 by n (nonhomogeneous) world coordinate
+    assert(p1.shape[0]==3 and p2.shape[0]==3 and p1.shape[1]==p2.shape[1] )
+
+    M1 = K1 @ np.concatenate((R1, T1), axis = 1 )
+    M2 = K2 @ np.concatenate((R2, T2), axis = 1 )
+
+    n=p1.shape[1]
+    p_W = np.zeros((3,n))
+        
+    mu = np.zeros((4,n))
+    for i in range(n):
+        Q = np.concatenate(( hat(p1[:,i])@M1, hat(p2[:,i])@M2), axis=0)
+        U, S, VT = scipy.linalg.svd(Q)
+        mu[:,i] = S
+        Pi = VT[-1,:]
+        p_W[:,i] = Pi[0:3]/Pi[3]
+
+    mu_ratio = mu[3,:]/mu[2,:]
+    err1 = np.sqrt(np.sum((deh( M1 @ hom(p_W)) - deh(p1))**2, axis=0)) 
+    err2 = np.sqrt(np.sum((deh( M2 @ hom(p_W)) - deh(p2))**2, axis=0))
+    err = np.max((err1,err2), axis=0)
+    
+    P_2W = R2 @ p_W +T2 # vector from C2 to p_W resolved in C2 frame
+    depth = P_2W[2,:] # depth of p_W in C2 frame
+    
+    index_inliers = np.where( ( (mu_ratio < tol_mu) & (err < tol_rep) & (tol_depth[0] < depth) & (depth < tol_depth[1]) ) )[0]
+
+    return p_W, index_inliers, mu_ratio, err, depth
+
 
 def essentialmatrix2RT(E, p1, p2, K1, K2):
     # E: 3 by 3 essential essential matrix
@@ -621,6 +658,7 @@ def VO_bootstrap(img0, img1, K, param, display = False):
     # triangulation
     tol_TRI_mu = param['tol_TRI_mu']
     tol_TRI_rep = param['tol_TRI_rep']
+    tol_TRI_depth = param['tol_TRI_depth']
 
     # # PARAMETERS
     # # keypoints
@@ -666,7 +704,9 @@ def VO_bootstrap(img0, img1, K, param, display = False):
     M0 = K @ np.concatenate( (np.identity(3), np.zeros((3,1))), axis=1 )
     M1 = K @ np.concatenate( (R1, T1), axis=1 )
 
-    p_W, index_inliers, mu_ratio, err = triangulation_robust(p0_h, p1_h, M0, M1, tol_TRI_mu, tol_TRI_rep)
+    # p_W, index_inliers, mu_ratio, err = triangulation_robust(p0_h, p1_h, M0, M1, tol_TRI_mu, tol_TRI_rep)
+    p_W, index_inliers, _, _, _ = triangulation_robust_depth(p0_h, p1_h, K, np.identity(3), np.zeros((3,1)),\
+        K, R1, T1, tol_TRI_mu, tol_TRI_rep, tol_TRI_depth)
 
     # save keypoints and p_W from inliers
     keypoints = [(vu[1], vu[0]) for vu in p0[:,index_inliers].T]
@@ -722,6 +762,7 @@ def VO_localization_mapping(i_frame, img, img_pre, S_pre, C_pre, K, param, displ
     # triangulation
     tol_TRI_mu = param['tol_TRI_mu']
     tol_TRI_rep = param['tol_TRI_rep']
+    tol_TRI_depth = param['tol_TRI_depth']
     # mapping
     tol_keypoints_new = param['tol_keypoints_new']
 
@@ -808,11 +849,16 @@ def VO_localization_mapping(i_frame, img, img_pre, S_pre, C_pre, K, param, displ
             C_p_i = C_p[:,i]
             C_p_org_i = C_p_pre_org[:,i]
         
-            M_i = K @ np.concatenate((R, T), axis=1)
-            M_org = K @ np.concatenate((C_pre.R_org[i], C_pre.T_org[i]), axis=1)
+            # M_i = K @ np.concatenate((R, T), axis=1)
+            # M_org = K @ np.concatenate((C_pre.R_org[i], C_pre.T_org[i]), axis=1)
 
-            p_W_i, index_pW_inliers, _, _ = triangulation_robust(\
-                hom(C_p_i.reshape(2,1)), hom(C_p_org_i.reshape(2,1)), M_i, M_org, tol_TRI_mu, tol_TRI_rep)
+            # p_W_i, index_pW_inliers, _, _ = triangulation_robust(\
+            #     hom(C_p_i.reshape(2,1)), hom(C_p_org_i.reshape(2,1)), M_i, M_org, tol_TRI_mu, tol_TRI_rep)
+
+            p_W_i, index_pW_inliers, _, _, _ = triangulation_robust_depth(hom(C_p_org_i.reshape(2,1)), hom(C_p_i.reshape(2,1)), \
+                K, C_pre.R_org[i], C_pre.T_org[i], K, R, T, \
+                tol_TRI_mu, tol_TRI_rep, tol_TRI_depth)
+
 
             # If the triangulated p_W is inlier then the corresponding keypoint is added to the state
             if index_pW_inliers.shape[0] > 0:
@@ -882,6 +928,9 @@ def VO_localization_mapping(i_frame, img, img_pre, S_pre, C_pre, K, param, displ
             u_q, v_q = p_inliers[0,i], p_inliers[1,i] 
             u_d, v_d = p_pre_inliers[0,i], p_pre_inliers[1,i] 
             plt.plot([u_d,u_q],[v_d,v_q],'r', linewidth=0.5)
+        for (v, u) in C.keypoints:
+            plt.plot(u,v,'y,', linewidth=0.5, markersize=1)
+
 
         plt.title('i_frame='+str(i_frame)+', N_p_W='+str(len(S_pre.keypoints))+', N_inliers='+str(N_inliers), fontsize=4)
 

@@ -99,4 +99,10 @@ def calibrateCamera_Tsai(p, P):
     K = s*K_tilde
     M = s*M_tilde
 
+    # 6. Resolve sign ambiguity
+    if linalg.det(R) < 0:
+        R = -R
+        T = -T
+        M = -M
+
     return K, R, T, M

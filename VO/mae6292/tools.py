@@ -5,7 +5,7 @@ import scipy.linalg as linalg
 import scipy.signal
 import scipy.spatial.distance
 from mpl_toolkits.mplot3d import Axes3D
-from matplotlib.patches import Polygon
+from matplotlib.patches import Polygon, Rectangle
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 class WireFrameCamera:
@@ -749,7 +749,7 @@ class candidate(NamedTuple):
     R_org: list
     T_org: list
 
-def VO_localization_mapping(i_frame, img, img_pre, S_pre, C_pre, K, param, display_process=False):
+def VO_localization_mapping(i_frame, img, img_rgb, img_pre, S_pre, C_pre, K, param, display_process=False):
 
     # PARAMETERS
     W_harris_patch = param['W_harris_patch']
@@ -914,24 +914,22 @@ def VO_localization_mapping(i_frame, img, img_pre, S_pre, C_pre, K, param, displ
     S = state(S_keypoints, S_p_W, S_T_W_history)
     C = candidate(C_keypoints, C_keypoints_org, C_R_org, C_T_org)
 
+
     # Visualization
     if display_process:
         
         fig = plt.figure(dpi=300,figsize=(3,5))
         ax_img = fig.add_subplot(2, 1, 1)
-        plt.imshow(img,cmap='gray')
+        # plt.imshow(img,cmap='gray')
         plt.xticks([]), plt.yticks([])
         plt.axis('off')
         plt.scatter(p_inliers[0,:], p_inliers[1,:], marker='+', color='r', linewidth=0.5, s=3)
         plt.scatter(p_pre_inliers[0,:], p_pre_inliers[1,:], marker='+', color='b', linewidth=0.5, s=3)
         for i in range(N_inliers):
-            u_q, v_q = p_inliers[0,i], p_inliers[1,i] 
-            u_d, v_d = p_pre_inliers[0,i], p_pre_inliers[1,i] 
+            u_q, v_q = p_inliers[0,i], p_inliers[1,i]
+            u_d, v_d = p_pre_inliers[0,i], p_pre_inliers[1,i]
             plt.plot([u_d,u_q],[v_d,v_q],'r', linewidth=0.5)
-        for (v, u) in C.keypoints:
-            plt.plot(u,v,'y,', linewidth=0.5, markersize=1)
-
-
+        plt.imshow(img_rgb, zorder=1)
         plt.title('i_frame='+str(i_frame)+', N_p_W='+str(len(S_pre.keypoints))+', N_inliers='+str(N_inliers), fontsize=4)
 
         ax = fig.add_subplot(2, 1, 2, projection='3d')
@@ -954,7 +952,7 @@ def VO_localization_mapping(i_frame, img, img_pre, S_pre, C_pre, K, param, displ
         ax.view_init(elev=0., azim=-90)
         draw_frame(ax, np.identity(3), np.zeros((3,1)), axis_length=2, line_width=0.5)
         draw_frame(ax, R, T, axis_length=2, line_width=0.5)
-        plt.tight_layout()
+        
     else:
         fig = None
 

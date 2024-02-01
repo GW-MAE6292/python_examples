@@ -26,7 +26,8 @@ class WireFrameCamera:
         vertices_W = R.T@(self.vertices - T@np.ones((1,5)))
 
         fig = plt.figure(dpi=150)
-        ax = fig.gca(projection='3d')
+        # ax = fig.gca(projection='3d') depreciated 
+        ax = fig.add_subplot(projection='3d')
 
         for edge in self.edges:
             plt.plot(vertices_W[0,list(edge)],vertices_W[1,list(edge)],vertices_W[2,list(edge)],'b',linewidth=0.5)
